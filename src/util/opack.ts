@@ -12,7 +12,8 @@ function _opack_pack(data: any, object_list: Buffer[] = []): Buffer {
   } else if (typeof data == "boolean") {
     packed_bytes = Buffer.from([data ? 1 : 2]);
   } else if (uuidValidate(data)) {
-    packed_bytes = Buffer.concat([Buffer.from([0x05]), Buffer.from(data)]); // .replace(/\-/g, "")
+    const hexStr = data.replace(/-/g, '');
+    packed_bytes = Buffer.concat([Buffer.from([0x05]), Buffer.from(hexStr, 'hex')]);
   } else if (typeof data == "number") {
     if (Number.isInteger(data)) {
       if (data < 0x28) {
@@ -163,13 +164,3 @@ function _opack_pack(data: any, object_list: Buffer[] = []): Buffer {
 
   return packed_bytes;
 }
-
-console.log(
-  opack_pack({
-    a: false,
-    b: "test",
-    c: "test",
-  })
-    .toString("hex")
-    .toUpperCase()
-);

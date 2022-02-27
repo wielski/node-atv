@@ -54,6 +54,12 @@ export interface LockdowndValueResponse {
   Value: string;
 }
 
+export interface LockdowndValueCUResponse {
+  Request: "GetValueCU";
+  Nonce: Buffer;
+  Payload: Buffer;
+}
+
 export interface LockdowndQueryTypeResponse {
   Request: "QueryType";
   Type: string;
@@ -111,6 +117,13 @@ function isLockdowndValueResponse(resp: any): resp is LockdowndValueResponse {
   );
 }
 
+function isLockdowndValueCUResponse(resp: any): resp is LockdowndValueCUResponse {
+  return (
+    resp.Request === "GetValueCU" &&
+    resp.Nonce !== undefined
+  );
+}
+
 function isLockdowndQueryTypeResponse(
   resp: any
 ): resp is LockdowndQueryTypeResponse {
@@ -148,6 +161,7 @@ export const responseValidators = {
   isLockdowndSessionResponse,
   isLockdowndAllValuesResponse,
   isLockdowndValueResponse,
+  isLockdowndValueCUResponse,
   isLockdowndQueryTypeResponse,
   isLockdowndInitialPairingResponse,
   isLockdowndPinPairingResponse,

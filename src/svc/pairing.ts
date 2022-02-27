@@ -136,9 +136,10 @@ export class Pairing {
     }
 
     const additionalData = {
-      accountID: pairingId,
+      // FIXME: wrong opack for uuid???
+      // accountID: pairingId,
       model: "HackbookPro13,37",
-      name: `Node Pairing`,
+      name: "Node-ATV",
       mac: macAddressBuf,
     };
 
@@ -155,11 +156,8 @@ export class Pairing {
     }
 
     let encryptedData = tlv.decode(ssrMessage.Payload)[tlv.Tag.EncryptedData];
-    let cipherText = encryptedData.slice(0, -16);
-    let hmac = encryptedData.slice(-16);
     let decrpytedData = enc.verifyAndDecrypt(
-      cipherText,
-      hmac,
+      encryptedData,
       null,
       Buffer.from("PS-Msg06"),
       encryptionKey
@@ -170,7 +168,8 @@ export class Pairing {
       tlvData[tlv.Tag.Username],
       pairingId,
       tlvData[tlv.Tag.PublicKey],
-      seed
+      seed,
+      this.key,
     );
   }
 
@@ -194,31 +193,35 @@ export class Pairing {
     encryptionKey: Buffer,
     additionalData?: Record<string, unknown>,
   ) {
-    let tlvData = tlv.encode(
-      tlv.Tag.Username,
-      Buffer.from(pairingId),
+    const tlvArgs = [
       tlv.Tag.PublicKey,
       publicKey,
       tlv.Tag.Signature,
-      signature
+      signature,
+      tlv.Tag.Permissions,
+      opack_pack({
+        "com.apple.ScreenCapture": true,
+        "com.apple.developer": true,
+      }),
+    ];
+
+    let tlvData = tlv.encode(
+      tlv.Tag.Username,
+      Buffer.from(pairingId),
+      ...tlvArgs,
     );
 
     if (additionalData) {
       tlvData = tlv.encode(
         tlv.Tag.Username,
         Buffer.from(pairingId),
-        tlv.Tag.PublicKey,
-        publicKey,
-        tlv.Tag.Signature,
-        signature,
-        17,
+        tlv.Tag.Additional,
         opack_pack(additionalData),
+        ...tlvArgs,
       );
     }
 
-    let encryptedTLV = Buffer.concat(
-      enc.encryptAndSeal(tlvData, null, Buffer.from("PS-Msg05"), encryptionKey)
-    );
+    let encryptedTLV = enc.encryptAndSeal(tlvData, null, Buffer.from("PS-Msg05"), encryptionKey);
 
     let outerTLV = tlv.encode(
       tlv.Tag.Sequence,

@@ -1,79 +1,52 @@
-import { api as Sodium } from "sodium";
 import crypto from "crypto";
 
-import number from "./number";
+import { ChaCha20Poly1305 } from "./chacha20poly1305";
 
-function computePoly1305(
-  cipherText: Buffer,
-  AAD: Buffer,
-  nonce: Buffer,
-  key: Buffer
-): Buffer {
-  if (AAD == null) {
-    AAD = Buffer.alloc(0);
-  }
-
-  const msg = Buffer.concat([
-    AAD,
-    getPadding(AAD, 16),
-    cipherText,
-    getPadding(cipherText, 16),
-    number.UInt53toBufferLE(AAD.length),
-    number.UInt53toBufferLE(cipherText.length),
-  ]);
-
-  const polyKey = Sodium.crypto_stream_chacha20(32, nonce, key);
-  const computed_hmac = Sodium.crypto_onetimeauth(msg, polyKey);
-  polyKey.fill(0);
-
-  return computed_hmac;
-}
-
-// custom decrypt
-// Sodium.crypto_aead_chacha20poly1305_decrypt uses [ AAD, AAD.length, CipherText, CipherText.length ]
-// homekit expects [ AAD, CipherText, AAD.length, CipherText.length ]
 function verifyAndDecrypt(
   cipherText: Buffer,
-  mac: Buffer,
   AAD: Buffer,
   nonce: Buffer,
   key: Buffer
 ): Buffer {
-  const matches = Sodium.crypto_verify_16(
-    mac,
-    computePoly1305(cipherText, AAD, nonce, key)
+  const decryptor = new ChaCha20Poly1305(bufferToUint8Array(key));
+  const result = decryptor.open(
+    bufferToUint8Array(nonce),
+    bufferToUint8Array(cipherText),
+    AAD ? bufferToUint8Array(AAD) : undefined
   );
 
-  if (matches === 0) {
-    return Sodium.crypto_stream_chacha20_xor_ic(cipherText, nonce, 1, key);
+  if (!result) {
+    throw new Error("Could not decrypt cipher");
   }
-
-  return null;
+  return Buffer.from(result);
 }
 
-// See above about calling directly into libsodium.
 function encryptAndSeal(
   plainText: Buffer,
   AAD: Buffer,
   nonce: Buffer,
   key: Buffer
-): Buffer[] {
-  const cipherText = Sodium.crypto_stream_chacha20_xor_ic(
-    plainText,
-    nonce,
-    1,
-    key
+): Buffer {
+  const encryptor = new ChaCha20Poly1305(key);
+  return Buffer.from(
+    encryptor.seal(
+      bufferToUint8Array(nonce),
+      bufferToUint8Array(plainText),
+      AAD ? bufferToUint8Array(AAD) : undefined
+    )
   );
-
-  const hmac = computePoly1305(cipherText, AAD, nonce, key);
-
-  return [cipherText, hmac];
 }
 
-function getPadding(buffer, blockSize) {
-  return buffer.length % blockSize === 0
-    ? Buffer.alloc(0)
-    : Buffer.alloc(blockSize - (buffer.length % blockSize));
+function bufferToUint8Array(buf?: Buffer): Uint8Array {
+  if (!buf) {
+    return new Uint8Array(0);
+  }
+
+  const ab = new Uint8Array(buf.length);
+  for (let i = 0; i < buf.length; ++i) {
+    ab[i] = buf[i];
+  }
+  return ab;
 }
 
 function HKDF(

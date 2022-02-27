@@ -1,13 +1,14 @@
-import type net from 'net';
-import tls from 'tls';
-import { Credentials } from '../../models/credentials';
+import type net from "net";
+import plist from "plist";
+import tls from "tls";
+import { Credentials } from "../../models/credentials";
 
-import { LockdownProtocolClient } from '../../protocols/lockdown';
+import { LockdownProtocolClient } from "../../protocols/lockdown";
 
-import { ResponseError, ServiceClient } from '../client';
-import type { UsbmuxdPairRecord } from '../usbmuxd';
+import { ResponseError, ServiceClient } from "../client";
+import type { UsbmuxdPairRecord } from "../usbmuxd";
 
-import { DeviceValue, responseValidators } from './types';
+import { DeviceValue, responseValidators } from "./types";
 
 export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
   constructor(public socket: net.Socket) {
@@ -16,7 +17,7 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
 
   async startService(name: string) {
     const resp = await this.protocolClient.sendMessage({
-      Request: 'StartService',
+      Request: "StartService",
       Service: name,
     });
 
@@ -29,7 +30,7 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
 
   async startSession(pairRecord: UsbmuxdPairRecord) {
     const resp = await this.protocolClient.sendMessage({
-      Request: 'StartSession',
+      Request: "StartSession",
       HostID: pairRecord.HostID,
       SystemBUID: pairRecord.SystemBUID,
     });
@@ -40,59 +41,67 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
           this.protocolClient.socket,
           {
             secureContext: tls.createSecureContext({
-              secureProtocol: 'TLSv1_method',
+              secureProtocol: "TLSv1_method",
               cert: pairRecord.RootCertificate,
               key: pairRecord.RootPrivateKey,
             }),
-          },
+          }
         );
       }
     } else {
-      throw new ResponseError('Error starting session', resp);
+      throw new ResponseError("Error starting session", resp);
     }
   }
 
   async getAllValues() {
-    const resp = await this.protocolClient.sendMessage({ Request: 'GetValue' });
+    const resp = await this.protocolClient.sendMessage({ Request: "GetValue" });
 
     if (responseValidators.isLockdowndAllValuesResponse(resp)) {
       return resp.Value;
     } else {
-      throw new ResponseError('Error getting lockdown value', resp);
+      throw new ResponseError("Error getting lockdown value", resp);
     }
   }
 
   async getValue(val: DeviceValue) {
     const resp = await this.protocolClient.sendMessage({
-      Request: 'GetValue',
+      Request: "GetValue",
       Key: val,
     });
 
     if (responseValidators.isLockdowndValueResponse(resp)) {
       return resp.Value;
     } else {
-      throw new ResponseError('Error getting lockdown value', resp);
+      throw new ResponseError("Error getting lockdown value", resp);
     }
   }
 
   async getValueCU(val: DeviceValue, credentials: Credentials) {
-    const { nonce, payload } = credentials.encrypt(Buffer.from(val as string));
+    const request = {
+      Key: val,
+    };
+    const { nonce, payload } = credentials.encrypt(
+      Buffer.from(plist.build(request))
+    );
+
     const resp = await this.protocolClient.sendMessage({
-      Request: 'GetValueCU',
+      Request: "GetValueCU",
       Nonce: nonce,
       Payload: payload,
+      Label: "Xcode",
+      ProtocolVersion: "2",
     });
 
-    if (responseValidators.isLockdowndValueResponse(resp)) {
-      return resp.Value;
+    if (responseValidators.isLockdowndValueCUResponse(resp)) {
+      return credentials.decrypt(resp.Payload, resp.Nonce);
     } else {
-      throw new ResponseError('Error getting lockdown value', resp);
+      throw new ResponseError("Error getting lockdown value", resp);
     }
   }
 
   async initiatePairing(tlv: Buffer) {
     const resp = await this.protocolClient.sendMessage({
-      Request: 'CUPairingCreate',
+      Request: "CUPairingCreate",
       Flags: "1",
       Payload: tlv,
     });
@@ -100,13 +109,13 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
     if (responseValidators.isLockdowndInitialPairingResponse(resp)) {
       return resp.ExtendedResponse;
     } else {
-      throw new ResponseError('Error pairing', resp);
+      throw new ResponseError("Error pairing", resp);
     }
   }
 
   async pinPairing(tlv: Buffer) {
     const resp = await this.protocolClient.sendMessage({
-      Request: 'CUPairingCreate',
+      Request: "CUPairingCreate",
       Flags: "0",
       Payload: tlv,
     });
@@ -114,13 +123,13 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
     if (responseValidators.isLockdowndPinPairingResponse(resp)) {
       return resp.ExtendedResponse;
     } else {
-      throw new ResponseError('Error pairing', resp);
+      throw new ResponseError("Error pairing", resp);
     }
   }
 
   async ssrPairing(tlv: Buffer) {
     const resp = await this.protocolClient.sendMessage({
-      Request: 'CUPairingCreate',
+      Request: "CUPairingCreate",
       Flags: "0",
       Payload: tlv,
     });
@@ -128,19 +137,19 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
     if (responseValidators.isLockdowndSsrPairingResponse(resp)) {
       return resp.ExtendedResponse;
     } else {
-      throw new ResponseError('Error pairing', resp);
+      throw new ResponseError("Error pairing", resp);
     }
   }
 
   async queryType() {
     const resp = await this.protocolClient.sendMessage({
-      Request: 'QueryType',
+      Request: "QueryType",
     });
 
     if (responseValidators.isLockdowndQueryTypeResponse(resp)) {
       return resp.Type;
     } else {
-      throw new ResponseError('Error getting lockdown query type', resp);
+      throw new ResponseError("Error getting lockdown query type", resp);
     }
   }
 

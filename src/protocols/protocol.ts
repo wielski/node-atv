@@ -20,7 +20,8 @@ export abstract class ProtocolReader {
 
   constructor(
     protected headerSize: number,
-    protected callback: ProtocolReaderCallback
+    protected callback: ProtocolReaderCallback,
+
   ) {
     this.onData = this.onData.bind(this);
   }
@@ -68,6 +69,15 @@ export abstract class ProtocolReader {
 export abstract class PlistProtocolReader extends ProtocolReader {
   protected parseBody(body: Buffer) {
     return plist.parse(body.toString("utf8"));
+  }
+
+  onData(data?: Buffer) {
+    this.buffer = data ? Buffer.concat([this.buffer, data]) : this.buffer;
+
+    if (this.buffer.toString().indexOf("</plist>") > -1) {
+      this.callback(this.parseBody(this.buffer));
+      this.buffer = Buffer.alloc(0);
+    }
   }
 }
 
