@@ -1,0 +1,28 @@
+{
+  "name": "appletvinstaller",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@types/bonjour": "^3.5.10",
+    "@types/ed25519": "^0.0.0",
+    "@types/node-forge": "^1.0.0",
+    "@types/node-tlv": "^1.5.1",
+    "@types/plist": "^3.0.2",
+    "bonjour": "^3.5.0",
+    "crypto": "^1.0.1",
+    "curve25519-n2": "^1.2.0",
+    "ed25519": "^0.0.5",
+    "extract-zip": "^2.0.1",
+    "fast-srp-hap": "^2.0.4",
+    "forge": "^2.3.0",
+    "getmac": "^5.20.0",
+    "node-forge": "^1.2.1",
+    "node-tlv": "^1.5.14",
+    "plist": "^3.0.4",
+    "sodium": "^3.0.2",
+    "tslib": "^2.3.1",
+    "typescript": "^4.5.5",
+    "uuid": "^8.3.2"
+  }
+}
