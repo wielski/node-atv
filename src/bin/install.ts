@@ -1,6 +1,6 @@
 import fs from "fs";
-import { main } from "../src/cmd/install";
-import { Credentials } from "../src/models/credentials";
+import { main } from "../cmd/install";
+import { Credentials } from "../models/credentials";
 
 if (!process.argv[2]) {
     throw new Error(`Please set device udid: ${process.argv[0]} xxx-xxx-xxx-xxx /path/to/app.ipa`);
@@ -19,6 +19,6 @@ const credentials = Credentials.fromString(credentialsContent.toString());
 main(credentials, udid, ipa).then((bundleId) => {
     console.log(`App ${bundleId} installed!`);
 }).catch((e) => {
-    console.error(e.message);
+    console.error(e);
     process.exit(1);
 });

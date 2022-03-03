@@ -41,6 +41,7 @@ export interface LockdowndServiceResponse {
 export interface LockdowndSessionResponse {
   Request: "StartSession";
   EnableSessionSSL: boolean;
+  SessionID: string;
 }
 
 export interface LockdowndAllValuesResponse {
@@ -100,7 +101,7 @@ function isLockdowndServiceResponse(
 function isLockdowndSessionResponse(
   resp: any
 ): resp is LockdowndSessionResponse {
-  return resp.Request === "StartSession";
+  return resp.Request === "StartSession" && resp.SessionID;
 }
 
 function isLockdowndAllValuesResponse(
@@ -117,9 +118,9 @@ function isLockdowndValueResponse(resp: any): resp is LockdowndValueResponse {
   );
 }
 
-function isLockdowndValueCUResponse(resp: any): resp is LockdowndValueCUResponse {
+function isLockdowndCUResponse(resp: any, name: string): resp is LockdowndValueCUResponse {
   return (
-    resp.Request === "GetValueCU" &&
+    resp.Request === name &&
     resp.Nonce !== undefined
   );
 }
@@ -161,9 +162,9 @@ export const responseValidators = {
   isLockdowndSessionResponse,
   isLockdowndAllValuesResponse,
   isLockdowndValueResponse,
-  isLockdowndValueCUResponse,
   isLockdowndQueryTypeResponse,
   isLockdowndInitialPairingResponse,
   isLockdowndPinPairingResponse,
   isLockdowndSsrPairingResponse,
+  isLockdowndCUResponse,
 };

@@ -6,9 +6,11 @@ import getmac from "getmac";
 
 import { Credentials } from "../models/credentials";
 import { LockdowndClient } from "../clients/lockdownd";
-import enc from "../util/encryption";
-import tlv from "../util/tlv";
+
+import { verifyAndDecrypt64, encryptAndSeal64, HKDF } from "../util/encryption";
 import { opack_pack } from "../util/opack";
+import tlv from "../util/tlv";
+import { UsbmuxdClient } from "../clients/usbmuxd";
 
 export type PairPinResponse = (pin: string) => Promise<Credentials>;
 
@@ -21,7 +23,10 @@ interface SrpPayload {
 export class Pairing {
   private key: Buffer = crypto.randomBytes(32);
 
-  constructor(private lockdownd: LockdowndClient) {}
+  constructor(
+    private lockdownd: LockdowndClient,
+    private usbmuxd: UsbmuxdClient
+  ) {}
 
   async initiatePair(): Promise<PairPinResponse> {
     const tlvData = tlv.encode(
@@ -70,8 +75,8 @@ export class Pairing {
       );
     }
 
-    return (pin: string) => {
-      return this.completePairing(pin, deviceSalt, devicePublicKey);
+    return async (pin: string) => {
+      return await this.completePairing(pin, deviceSalt, devicePublicKey);
     };
   }
 
@@ -103,7 +108,7 @@ export class Pairing {
     let publicKey = keyPair.publicKey;
     let sharedSecret = srpPayload.srp.computeK();
 
-    let deviceHash = enc.HKDF(
+    let deviceHash = HKDF(
       "sha512",
       Buffer.from("Pair-Setup-Controller-Sign-Salt"),
       sharedSecret,
@@ -111,7 +116,7 @@ export class Pairing {
       32
     );
 
-    let pairingId = uuidv4().toUpperCase();
+    let pairingId = uuidv4();
     let deviceInfo = Buffer.concat([
       deviceHash,
       Buffer.from(pairingId),
@@ -119,7 +124,7 @@ export class Pairing {
     ]);
 
     let deviceSignature = ed25519.Sign(deviceInfo, privateKey);
-    let encryptionKey = enc.HKDF(
+    let encryptionKey = HKDF(
       "sha512",
       Buffer.from("Pair-Setup-Encrypt-Salt"),
       sharedSecret,
@@ -136,8 +141,7 @@ export class Pairing {
     }
 
     const additionalData = {
-      // FIXME: wrong opack for uuid???
-      // accountID: pairingId,
+      accountID: pairingId,
       model: "HackbookPro13,37",
       name: "Node-ATV",
       mac: macAddressBuf,
@@ -148,7 +152,7 @@ export class Pairing {
       publicKey,
       deviceSignature,
       encryptionKey,
-      additionalData,
+      additionalData
     );
 
     if (ssrMessage.doSRPPair !== "succeed") {
@@ -156,7 +160,7 @@ export class Pairing {
     }
 
     let encryptedData = tlv.decode(ssrMessage.Payload)[tlv.Tag.EncryptedData];
-    let decrpytedData = enc.verifyAndDecrypt(
+    let decrpytedData = verifyAndDecrypt64(
       encryptedData,
       null,
       Buffer.from("PS-Msg06"),
@@ -164,13 +168,51 @@ export class Pairing {
     );
     let tlvData = tlv.decode(decrpytedData);
 
-    return new Credentials(
-      tlvData[tlv.Tag.Username],
-      pairingId,
-      tlvData[tlv.Tag.PublicKey],
-      seed,
-      this.key,
+    return this.pairingCu(tlvData[tlv.Tag.Username], pairingId, sharedSecret);
+  }
+
+  private async pairingCu(
+    identifier: Buffer,
+    pairingId: string,
+    sharedSecret: Buffer
+  ): Promise<Credentials> {
+    const wifiMac = await this.lockdownd.getValueCU<string>(
+      "WiFiAddress",
+      sharedSecret
     );
+    const publicKey = await this.lockdownd.getValueCU<Buffer>(
+      "DevicePublicKey",
+      sharedSecret
+    );
+
+    const systemBuid = uuidv4();
+    const pairingRecord = this.usbmuxd.getPairingRecord(
+      publicKey.toString(),
+      systemBuid,
+      pairingId
+    );
+
+    const { EscrowBag, UDID } = await this.lockdownd.pairCU(
+      {
+        DeviceCertificate: pairingRecord.DeviceCertificate,
+        HostCertificate: pairingRecord.HostCertificate,
+        HostID: pairingRecord.HostID,
+        RootCertificate: pairingRecord.RootCertificate,
+        SystemBUID: pairingRecord.SystemBUID,
+      },
+      sharedSecret
+    );
+
+    return new Credentials({
+      identifier,
+      pairingId,
+      publicKey,
+      systemBuid,
+      EscrowBag,
+      UDID,
+      wifiMac,
+      pairingRecord,
+    });
   }
 
   private async sendPinSequence(srpPayload: SrpPayload) {
@@ -191,7 +233,7 @@ export class Pairing {
     publicKey: Buffer,
     signature: Buffer,
     encryptionKey: Buffer,
-    additionalData?: Record<string, unknown>,
+    additionalData?: Record<string, unknown>
   ) {
     const tlvArgs = [
       tlv.Tag.PublicKey,
@@ -208,7 +250,7 @@ export class Pairing {
     let tlvData = tlv.encode(
       tlv.Tag.Username,
       Buffer.from(pairingId),
-      ...tlvArgs,
+      ...tlvArgs
     );
 
     if (additionalData) {
@@ -217,11 +259,16 @@ export class Pairing {
         Buffer.from(pairingId),
         tlv.Tag.Additional,
         opack_pack(additionalData),
-        ...tlvArgs,
+        ...tlvArgs
       );
     }
 
-    let encryptedTLV = enc.encryptAndSeal(tlvData, null, Buffer.from("PS-Msg05"), encryptionKey);
+    let encryptedTLV = encryptAndSeal64(
+      tlvData,
+      null,
+      Buffer.from("PS-Msg05"),
+      encryptionKey
+    );
 
     let outerTLV = tlv.encode(
       tlv.Tag.Sequence,
@@ -243,7 +290,7 @@ export class Pairing {
       deviceSalt,
       Buffer.from("Pair-Setup"),
       Buffer.from(pin),
-      this.key,
+      this.key
     );
     srp.setB(devicePublicKey);
 

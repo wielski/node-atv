@@ -30,7 +30,8 @@ async function connect(device: UsbmuxdPairableDevice): Promise<Credentials> {
     family: 4,
   });
   const connection = new LockdowndClient(socket);
-  const pairing = new Pairing(connection);
+  const usbmuxd = new UsbmuxdClient();
+  const pairing = new Pairing(connection, usbmuxd);
 
   console.log("Initiate pairing...");
 

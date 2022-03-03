@@ -1,79 +1,49 @@
-import crypto from "crypto";
-import encryption from "../util/encryption";
-// import number from "../util/number";
+import BufferSerializer from "buffer-serializer";
+import { UsbmuxdPairRecord } from "../clients/usbmuxd";
+
+interface CredentialsModel {
+  identifier: Buffer;
+  pairingId: string;
+  publicKey: Buffer;
+  systemBuid: string;
+  EscrowBag: Buffer;
+  UDID: string;
+  wifiMac: string;
+  pairingRecord: UsbmuxdPairRecord;
+}
 
 export class Credentials {
-  public readKey: Buffer;
-  public writeKey: Buffer;
+  constructor(private credentials: CredentialsModel) {}
 
-  // private encryptCount: number = 0;
-  // private decryptCount: number = 0;
+  get pairingRecord() {
+    return this.credentials.pairingRecord;
+  }
 
-  constructor(
-    public identifier: Buffer,
-    public pairingId: string,
-    public publicKey: Buffer,
-    public encryptionKey: Buffer,
-    public sharedKey: Buffer // TODO: rm?
-  ) {
-    this.readKey = encryption.HKDF(
-      "sha512",
-      Buffer.from("ReadKeySaltMDLD"),
-      this.sharedKey,
-      Buffer.from("ReadKeyInfoMDLD"),
-      32
-    );
+  get wifiMac() {
+    return this.credentials.wifiMac;
+  }
 
-    this.writeKey = encryption.HKDF(
-      "sha512",
-      Buffer.from("WriteKeySaltMDLD"),
-      this.sharedKey,
-      Buffer.from("WriteKeyInfoMDLD"),
-      32
-    );
+  get UDID() {
+    return this.credentials.UDID;
   }
 
   static fromString(text: string): Credentials {
-    let parts = text.split(":");
-    return new Credentials(
-      Buffer.from(parts[0], "hex"),
-      Buffer.from(parts[1], "hex").toString(),
-      Buffer.from(parts[2], "hex"),
-      Buffer.from(parts[3], "hex"),
-      Buffer.from(parts[4], "hex") // TODO: rm?
-    );
+    const serializer = new BufferSerializer();
+    const parsed = serializer.fromBuffer(Buffer.from(text, "hex"));
+    return new Credentials({
+      identifier: parsed.identifier,
+      pairingId: parsed.pairingId,
+      publicKey: parsed.publicKey,
+      systemBuid: parsed.systemBuid,
+      EscrowBag: parsed.EscrowBag,
+      UDID: parsed.UDID,
+      wifiMac: parsed.wifiMac,
+      pairingRecord: parsed.pairingRecord,
+    });
   }
 
   toString(): string {
-    return (
-      this.identifier.toString("hex") +
-      ":" +
-      Buffer.from(this.pairingId).toString("hex") +
-      ":" +
-      this.publicKey.toString("hex") +
-      ":" +
-      this.encryptionKey.toString("hex") +
-      ":" +
-      this.sharedKey.toString("hex") // TODO: rm?
-    );
-  }
-
-  encrypt(message: Buffer): {
-    nonce: Buffer;
-    payload: Buffer;
-  } {
-    let nonce = crypto.randomBytes(12);
-
-    return {
-      nonce,
-      payload: encryption.encryptAndSeal(message, null, nonce, this.writeKey),
-    };
-  }
-
-  decrypt(message: Buffer, nonce: Buffer): Buffer {
-    let cipherText = message.slice(0, -16);
-    let hmac = message.slice(-16);
-
-    return encryption.verifyAndDecrypt(cipherText, hmac, nonce, this.readKey);
+    const serializer = new BufferSerializer();
+    return serializer.toBuffer(this.credentials).toString("hex");
   }
 }

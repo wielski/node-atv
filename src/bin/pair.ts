@@ -1,5 +1,5 @@
 import fs from "fs";
-import { main } from "../src/cmd/pair";
+import { main } from "../cmd/pair";
 
 if (!process.argv[2]) {
     throw new Error(`Please set udid: ${process.argv[0]} xxx-xxx-xxx-xxx "Living Room"`);

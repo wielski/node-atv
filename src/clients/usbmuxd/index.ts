@@ -1,5 +1,4 @@
 import { pki } from "node-forge";
-import { v4 as uuidv4 } from "uuid";
 import net from "net";
 import Bonjour from "bonjour";
 
@@ -90,8 +89,9 @@ export class UsbmuxdClient {
 
   public getPairingRecord(
     devicePublicKey: string,
+    systemBuid: string,
+    hostId: string,
     udid?: string,
-    systemBuid?: string
   ): UsbmuxdPairRecord {
     const rootCertificate = this.getCertificatePair(udid);
     const hostCertificate = this.getCertificatePair(udid);
@@ -110,11 +110,6 @@ export class UsbmuxdClient {
       ...this.basicCaExtensions,
       ...this.advancedCaExtensions,
     ]);
-
-    const hostId: string = uuidv4();
-    if (!systemBuid) {
-      systemBuid = uuidv4();
-    }
 
     return {
       DeviceCertificate: Buffer.from(
@@ -147,17 +142,10 @@ export class UsbmuxdClient {
       family: 4,
     });
     const lockdownd = new LockdowndClient(socket);
+    let UDID: string;
 
-    // TODO: FIXME! get publicKey from lockdown DevicePublicKey???
-    if (credentials) {
-      try {
-        const publicKey = await lockdownd.getValueCU("DevicePublicKey", credentials);
-        console.log(publicKey);
-        const pairRecord = this.getPairingRecord(publicKey.toString());
-        await lockdownd.doHandshake(pairRecord);
-      } catch (e) {
-        console.log(e);
-      }
+    if (credentials && service.name && service.name.indexOf(credentials.wifiMac) > -1) {
+      UDID = credentials.UDID;
     }
 
     try {
@@ -165,7 +153,7 @@ export class UsbmuxdClient {
 
       return {
         Host: service.host,
-        UDID: info.UniqueDeviceID,
+        UDID: UDID,
         Name: info.DeviceName,
       };
     } catch(e) {
@@ -205,6 +193,7 @@ export class UsbmuxdClient {
     );
     certificate.setSubject(certificateAttrs);
     certificate.setIssuer(certificateAttrs);
+    certificate.sign(keyPair.privateKey);
 
     return {
       keyPair,

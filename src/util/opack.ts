@@ -1,4 +1,10 @@
-import { validate as uuidValidate } from "uuid";
+export class OpackUUID {
+  constructor(public value: string) {}
+  
+  toBuffer(): Buffer {
+    return Buffer.from(this.value);
+  }
+}
 
 export function opack_pack(data: any) {
   return _opack_pack(data);
@@ -11,9 +17,8 @@ function _opack_pack(data: any, object_list: Buffer[] = []): Buffer {
     packed_bytes = Buffer.from([0x04]);
   } else if (typeof data == "boolean") {
     packed_bytes = Buffer.from([data ? 1 : 2]);
-  } else if (uuidValidate(data)) {
-    const hexStr = data.replace(/-/g, '');
-    packed_bytes = Buffer.concat([Buffer.from([0x05]), Buffer.from(hexStr, 'hex')]);
+  } else if (data instanceof OpackUUID) {
+    packed_bytes = Buffer.concat([Buffer.from([0x05]), data.toBuffer()]);
   } else if (typeof data == "number") {
     if (Number.isInteger(data)) {
       if (data < 0x28) {

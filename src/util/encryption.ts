@@ -2,7 +2,7 @@ import crypto from "crypto";
 
 import { ChaCha20Poly1305 } from "./chacha20poly1305";
 
-function verifyAndDecrypt(
+export function verifyAndDecrypt(
   cipherText: Buffer,
   AAD: Buffer,
   nonce: Buffer,
@@ -21,7 +21,19 @@ function verifyAndDecrypt(
   return Buffer.from(result);
 }
 
-function encryptAndSeal(
+export function verifyAndDecrypt64(
+  cipherText: Buffer,
+  AAD: Buffer,
+  nonce: Buffer,
+  key: Buffer
+): Buffer {
+  const nonce64 = Buffer.alloc(12);
+  nonce.copy(nonce64, 4);
+
+  return verifyAndDecrypt(cipherText, AAD, nonce64, key);
+}
+
+export function encryptAndSeal(
   plainText: Buffer,
   AAD: Buffer,
   nonce: Buffer,
@@ -37,7 +49,19 @@ function encryptAndSeal(
   );
 }
 
-function bufferToUint8Array(buf?: Buffer): Uint8Array {
+export function encryptAndSeal64(
+  plainText: Buffer,
+  AAD: Buffer,
+  nonce: Buffer,
+  key: Buffer
+): Buffer {
+  const nonce64 = Buffer.alloc(12);
+  nonce.copy(nonce64, 4);
+
+  return encryptAndSeal(plainText, AAD, nonce64, key);
+}
+
+export function bufferToUint8Array(buf?: Buffer): Uint8Array {
   if (!buf) {
     return new Uint8Array(0);
   }
@@ -49,7 +73,7 @@ function bufferToUint8Array(buf?: Buffer): Uint8Array {
   return ab;
 }
 
-function HKDF(
+export function HKDF(
   hashAlg: string,
   salt: Buffer,
   ikm: Buffer,
@@ -57,24 +81,24 @@ function HKDF(
   size: number
 ): Buffer {
   // create the hash alg to see if it exists and get its length
-  var hash = crypto.createHash(hashAlg);
-  var hashLength = hash.digest().length;
+  const hash = crypto.createHash(hashAlg);
+  const hashLength = hash.digest().length;
 
   // now we compute the PRK
-  var hmac = crypto.createHmac(hashAlg, salt);
+  let hmac = crypto.createHmac(hashAlg, salt);
   hmac.update(ikm);
-  var prk = hmac.digest();
+  const prk = hmac.digest();
 
-  var prev = Buffer.alloc(0);
-  var output;
-  var buffers = [];
-  var num_blocks = Math.ceil(size / hashLength);
+  let output: Buffer;
+  let prev = Buffer.alloc(0);
+  const buffers: Buffer[] = [];
+  const num_blocks = Math.ceil(size / hashLength);
   info = Buffer.from(info);
 
-  for (var i = 0; i < num_blocks; i++) {
-    var hmac = crypto.createHmac(hashAlg, prk);
+  for (let i = 0; i < num_blocks; i++) {
+    hmac = crypto.createHmac(hashAlg, prk);
 
-    var input = Buffer.concat([
+    const input = Buffer.concat([
       prev,
       info,
       Buffer.from(String.fromCharCode(i + 1)),
@@ -86,9 +110,3 @@ function HKDF(
   output = Buffer.concat(buffers, size);
   return output.slice(0, size);
 }
-
-export default {
-  encryptAndSeal,
-  verifyAndDecrypt,
-  HKDF,
-};
