@@ -3,8 +3,9 @@ import net from "net";
 import Bonjour from "bonjour";
 
 import { LockdowndClient } from "../../clients/lockdownd";
-import { sleepAsync } from "../../util/sleep";
 import { Credentials } from "../../models/credentials";
+import { sleepAsync } from "../../util/sleep";
+import { dnsLookup } from "../../util/network";
 
 export interface UsbmuxdPairRecord {
   DeviceCertificate: Buffer;
@@ -22,36 +23,15 @@ export interface UsbmuxdGenericDevice {
   UDID?: string;
 }
 
-export type UsbmuxdPairableDevice = Omit<UsbmuxdGenericDevice, "UDID"> & Partial<Pick<UsbmuxdGenericDevice, "UDID">>;
-export type UsbmuxdDevice = Omit<UsbmuxdGenericDevice, "UDID"> & Required<Pick<UsbmuxdGenericDevice, "UDID">>;
+export type UsbmuxdPairableDevice = Omit<UsbmuxdGenericDevice, "UDID"> &
+  Partial<Pick<UsbmuxdGenericDevice, "UDID">>;
+export type UsbmuxdDevice = Omit<UsbmuxdGenericDevice, "UDID"> &
+  Required<Pick<UsbmuxdGenericDevice, "UDID">>;
 
 export class UsbmuxdClient {
-  get basicCaExtensions() {
-    return [
-      {
-        name: "basicConstraints",
-        cA: true,
-      },
-      {
-        name: "subjectKeyIdentifier",
-      },
-    ];
-  }
-
-  get advancedCaExtensions() {
-    return [
-      {
-        name: "keyUsage",
-        keyCertSign: true,
-        digitalSignature: true,
-        nonRepudiation: true,
-        keyEncipherment: true,
-        dataEncipherment: true,
-      },
-    ];
-  }
-
-  public async getDeviceList(credentials: Credentials): Promise<UsbmuxdDevice[]> {
+  public async getDeviceList(
+    credentials: Credentials
+  ): Promise<UsbmuxdDevice[]> {
     return this.findDevices<UsbmuxdDevice>("apple-mobdev2", credentials);
   }
 
@@ -59,7 +39,10 @@ export class UsbmuxdClient {
     return this.findDevices<UsbmuxdPairableDevice>("apple-pairable");
   }
 
-  private async findDevices<T>(type: string, credentials?: Credentials): Promise<T[]> {
+  private async findDevices<T>(
+    type: string,
+    credentials?: Credentials
+  ): Promise<T[]> {
     const bonjour = Bonjour();
     const services: Bonjour.RemoteService[] = [];
 
@@ -79,7 +62,9 @@ export class UsbmuxdClient {
 
     bonjour.destroy();
 
-    const serviceInfos = services.map((s) => this.readServiceInfo(s, credentials));
+    const serviceInfos = services.map((s) =>
+      this.readServiceInfo(s, credentials)
+    );
     const devices: T[] = await Promise.all(serviceInfos).catch(() => {
       return undefined;
     });
@@ -91,41 +76,84 @@ export class UsbmuxdClient {
     devicePublicKey: string,
     systemBuid: string,
     hostId: string,
-    udid?: string,
+    _udid?: string
   ): UsbmuxdPairRecord {
-    const rootCertificate = this.getCertificatePair(udid);
-    const hostCertificate = this.getCertificatePair(udid);
-    const deviceCertificate = this.getCertificatePair(udid, devicePublicKey);
+    const keySize = 2048;
+    const rootKeyPair = pki.rsa.generateKeyPair(keySize);
+    const hostKeyPair = pki.rsa.generateKeyPair(keySize);
 
-    rootCertificate.certificate.setExtensions([...this.basicCaExtensions]);
-    rootCertificate.certificate.sign(rootCertificate.keyPair.privateKey);
+    const rootCertificate = this.getCertificatePair([
+      {
+        name: "basicConstraints",
+        critical: true,
+        cA: true,
+      },
+      {
+        name: 'subjectKeyIdentifier'
+      },
+    ], rootKeyPair.privateKey, rootKeyPair.publicKey);
 
-    hostCertificate.certificate.setExtensions([
-      ...this.basicCaExtensions,
-      ...this.advancedCaExtensions,
-    ]);
-    hostCertificate.certificate.sign(hostCertificate.keyPair.privateKey);
+    const hostCertificate = this.getCertificatePair([
+      {
+        name: "basicConstraints",
+        critical: true,
+        cA: false,
+      },
+      {
+        name: 'subjectKeyIdentifier'
+      },
+      {
+        name: "keyUsage",
+        critical: true,
+        digitalSignature: true,
+        keyEncipherment: true,
+        keyCertSign: false,
+        nonRepudiation: false,
+        dataEncipherment: false,
+      },
+    ], rootKeyPair.privateKey, hostKeyPair.publicKey);
 
-    deviceCertificate.certificate.setExtensions([
-      ...this.basicCaExtensions,
-      ...this.advancedCaExtensions,
-    ]);
+    const deviceCertificate = this.getCertificatePair([
+      {
+        name: "basicConstraints",
+        cA: false,
+        critical: true,
+      },
+      {
+        name: 'subjectKeyIdentifier'
+      },
+      {
+        name: "keyUsage",
+        critical: true,
+        digitalSignature: true,
+        keyEncipherment: true,
+        keyCertSign: false,
+        nonRepudiation: false,
+        dataEncipherment: false,
+      },
+    ], rootKeyPair.privateKey, pki.publicKeyFromPem(devicePublicKey));
+
+    const convertPrivateKeyToPem = (privateKey: pki.PrivateKey) => {
+      const rsaPrivateKey = pki.privateKeyToAsn1(privateKey);
+      const privateKeyInfo = pki.wrapRsaPrivateKey(rsaPrivateKey);
+      return pki.privateKeyInfoToPem(privateKeyInfo);
+    };
 
     return {
       DeviceCertificate: Buffer.from(
-        pki.certificateToPem(deviceCertificate.certificate)
+        pki.certificateToPem(deviceCertificate)
       ),
       HostPrivateKey: Buffer.from(
-        pki.privateKeyToPem(hostCertificate.keyPair.privateKey)
+        convertPrivateKeyToPem(hostKeyPair.privateKey)
       ),
       HostCertificate: Buffer.from(
-        pki.certificateToPem(hostCertificate.certificate)
+        pki.certificateToPem(hostCertificate)
       ),
       RootPrivateKey: Buffer.from(
-        pki.privateKeyToPem(rootCertificate.keyPair.privateKey)
+        convertPrivateKeyToPem(rootKeyPair.privateKey)
       ),
       RootCertificate: Buffer.from(
-        pki.certificateToPem(rootCertificate.certificate)
+        pki.certificateToPem(rootCertificate)
       ),
       SystemBUID: systemBuid.toUpperCase(),
       HostID: hostId.toUpperCase(),
@@ -134,17 +162,21 @@ export class UsbmuxdClient {
 
   private async readServiceInfo(
     service: Bonjour.RemoteService,
-    credentials?: Credentials,
+    credentials?: Credentials
   ): Promise<UsbmuxdGenericDevice> {
+    const deviceHost = await dnsLookup(service.host);
     const socket = net.createConnection({
-      host: service.host,
+      host: deviceHost,
       port: 62078,
-      family: 4,
     });
     const lockdownd = new LockdowndClient(socket);
     let UDID: string;
 
-    if (credentials && service.name && service.name.indexOf(credentials.wifiMac) > -1) {
+    if (
+      credentials &&
+      service.name &&
+      service.name.indexOf(credentials.wifiMac) > -1
+    ) {
       UDID = credentials.UDID;
     }
 
@@ -156,12 +188,12 @@ export class UsbmuxdClient {
         UDID: UDID,
         Name: info.DeviceName,
       };
-    } catch(e) {
+    } catch (e) {
       return Promise.reject();
     }
   }
 
-  private getCertificatePair(udid?: string, publicKey?: string) {
+  private getCertificatePair(extensions: unknown[], privateKey: pki.PrivateKey, publicKey: pki.PublicKey, udid?: string) {
     const certificateAttrs = [];
 
     if (udid && udid.length > 0) {
@@ -175,29 +207,21 @@ export class UsbmuxdClient {
       });
     }
 
-    let publicKeyFromPem: pki.PublicKey;
-    if (publicKey) {
-      publicKeyFromPem = pki.publicKeyFromPem(publicKey);
-    }
-
-    const keySize = 2048;
-    const keyPair = pki.rsa.generateKeyPair(keySize);
+    const notBefore = new Date();
+    const notAfter = new Date(notBefore);
+    notAfter.setDate(notAfter.getDate() + 365 * 10);
 
     const certificate = pki.createCertificate();
-    certificate.publicKey = publicKeyFromPem || keyPair.publicKey;
-    certificate.serialNumber = "01";
-    certificate.validity.notBefore = new Date();
-    certificate.validity.notAfter = new Date();
-    certificate.validity.notAfter.setFullYear(
-      certificate.validity.notBefore.getFullYear() + 10
-    );
+    certificate.publicKey = publicKey;
+    certificate.version = 2;
+    certificate.serialNumber = "00";
+    certificate.validity.notBefore = notBefore;
+    certificate.validity.notAfter = notAfter;
+    certificate.setExtensions(extensions);
     certificate.setSubject(certificateAttrs);
     certificate.setIssuer(certificateAttrs);
-    certificate.sign(keyPair.privateKey);
+    certificate.sign(privateKey);
 
-    return {
-      keyPair,
-      certificate,
-    };
+    return certificate;
   }
 }

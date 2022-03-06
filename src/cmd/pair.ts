@@ -5,6 +5,7 @@ import { UsbmuxdClient, UsbmuxdPairableDevice } from "../clients/usbmuxd";
 import { LockdowndClient } from "../clients/lockdownd";
 import { Pairing } from "../svc/pairing";
 import { Credentials } from "../models/credentials";
+import { dnsLookup } from "../util/network";
 
 const readline = Readline.createInterface({
   input: process.stdin,
@@ -24,10 +25,10 @@ export async function main(_udid: string, name: string): Promise<Credentials> {
 }
 
 async function connect(device: UsbmuxdPairableDevice): Promise<Credentials> {
+  const deviceHost = await dnsLookup(device.Host);
   const socket = net.createConnection({
-    host: device.Host,
+    host: deviceHost,
     port: 62078,
-    family: 4,
   });
   const connection = new LockdowndClient(socket);
   const usbmuxd = new UsbmuxdClient();

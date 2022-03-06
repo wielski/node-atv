@@ -5,22 +5,29 @@ import { LockdowndClient } from "../clients/lockdownd";
 import { InstallationProxyClient } from "../clients/installer";
 import { Credentials } from "../models/credentials";
 import { AFCClient } from "../clients/afc";
+import { dnsLookup } from "../util/network";
 
-import { InstallApp } from '../svc/installApp';
+import { InstallApp } from "../svc/installApp";
 
-export async function main(credentials: Credentials, udid: string, ipaPath: string): Promise<string> {
+export async function main(
+  credentials: Credentials,
+  udid: string,
+  ipaPath: string
+): Promise<string> {
   const usbmuxd = new UsbmuxdClient();
   const devices = await usbmuxd.getDeviceList(credentials);
-  const device = devices.find((d) => d.UDID && d.UDID.replace(/\-/g, "") === udid.replace(/\-/g, ""));
+  const device = devices.find(
+    (d) => d.UDID && d.UDID.replace(/\-/g, "") === udid.replace(/\-/g, "")
+  );
 
   if (!device) {
     throw new Error(`Device with ${udid} not found in local network`);
   }
 
+  const deviceHost = await dnsLookup(device.Host);
   const socket = net.createConnection({
-    host: device.Host,
+    host: deviceHost,
     port: 62078,
-    family: 4,
   });
 
   const lockdown = new LockdowndClient(socket);
@@ -29,11 +36,12 @@ export async function main(credentials: Credentials, udid: string, ipaPath: stri
   await lockdown.getValue("ProductName");
 
   await lockdown.doHandshake(credentials.pairingRecord);
+  console.log("Handshake done");
 
   let bundleId: string;
 
   try {
-    await install(lockdown, ipaPath);
+    bundleId = await install(lockdown, ipaPath);
     lockdown.stopSession();
   } catch (e) {
     lockdown.stopSession();
@@ -43,7 +51,10 @@ export async function main(credentials: Credentials, udid: string, ipaPath: stri
   return bundleId;
 }
 
-async function install(lockdown: LockdowndClient, ipaPath: string): Promise<string> {
+async function install(
+  lockdown: LockdowndClient,
+  ipaPath: string
+): Promise<string> {
   const installer = new InstallationProxyClient(lockdown.socket);
   const afc = new AFCClient(lockdown.socket);
 

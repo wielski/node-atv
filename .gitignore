@@ -105,3 +105,6 @@ dist
 
 # Credentials (btw)
 *.connection
+
+# Private folder
+_private

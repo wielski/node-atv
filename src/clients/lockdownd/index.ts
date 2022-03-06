@@ -18,6 +18,7 @@ const defaultPlistData = {
 
 export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
   private currentSessionId?: string;
+  private defaultSocket?: net.Socket;
 
   constructor(public socket: net.Socket) {
     super(socket, new LockdownProtocolClient(socket));
@@ -40,42 +41,75 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
   async startSession(pairRecord: UsbmuxdPairRecord): Promise<void> {
     const resp = await this.protocolClient.sendMessage({
       Request: "StartSession",
-      HostID: pairRecord.HostID.toUpperCase(),
+      HostID: pairRecord.HostID,
       SystemBUID: pairRecord.SystemBUID,
       ...defaultPlistData,
     });
 
     if (responseValidators.isLockdowndSessionResponse(resp)) {
       if (resp.EnableSessionSSL) {
+        const ciphers = [
+          "tls_aes_256_gcm_sha384",
+          "tls_chacha20_poly1305_sha256",
+          "tls_aes_128_gcm_sha256",
+          "ecdhe-ecdsa-aes256-gcm-sha384",
+          "ecdhe-rsa-aes256-gcm-sha384",
+          "dhe-rsa-aes256-gcm-sha384",
+          "ecdhe-ecdsa-chacha20-poly1305",
+          "ecdhe-rsa-chacha20-poly1305",
+          "dhe-rsa-chacha20-poly1305",
+          "ecdhe-ecdsa-aes128-gcm-sha256",
+          "ecdhe-rsa-aes128-gcm-sha256",
+          "dhe-rsa-aes128-gcm-sha256",
+          "ecdhe-ecdsa-aes256-sha384",
+          "ecdhe-rsa-aes256-sha384",
+          "dhe-rsa-aes256-sha256",
+          "ecdhe-ecdsa-aes128-sha256",
+          "ecdhe-rsa-aes128-sha256",
+          "dhe-rsa-aes128-sha256",
+          "ecdhe-ecdsa-aes256-sha",
+          "ecdhe-rsa-aes256-sha",
+          "dhe-rsa-aes256-sha",
+          "ecdhe-ecdsa-aes128-sha",
+          "ecdhe-rsa-aes128-sha",
+          "dhe-rsa-aes128-sha",
+          "aes256-gcm-sha384",
+          "aes128-gcm-sha256",
+          "aes256-sha256",
+          "aes128-sha256",
+          "aes256-sha",
+          "aes128-sha",
+        ];
+
         return new Promise((resolve, reject) => {
-          const tlsSocket = new tls.TLSSocket(
-            this.protocolClient.socket,
-            {
-              secureOptions: crypto.constants.SSL_OP_NO_TLSv1_1,
-              cert: pairRecord.RootCertificate,
-              key: pairRecord.RootPrivateKey,
-              // secureContext: tls.createSecureContext({
-              //   // secureProtocol: "TLSv1_2_method",
-              //   // ca: pairRecord.HostCertificate,
-              //   cert: pairRecord.RootCertificate,
-              //   key: pairRecord.RootPrivateKey,
-              // }),
-            }
-          );
+            const tlsSocket = tls.connect({
+              socket: this.protocolClient.socket,
+              rejectUnauthorized: false,
+              secureContext: tls.createSecureContext({
+                ciphers: ciphers.map((c) => c.toUpperCase()).join(":"),
+                ca: pairRecord.DeviceCertificate,
+                cert: pairRecord.RootCertificate.toString(),
+                key: pairRecord.RootPrivateKey.toString(),
+                minVersion: "TLSv1",
+                maxVersion: "TLSv1.3",
+              }),
+            });
 
-          const rejectSocket = () => {
-            reject(new Error("TLS socket rejected connection"));
-          };
+            const rejectConnection = () => {
+              reject(new Error("TLS socket rejected connection"));
+            };
 
-          tlsSocket.on("close", rejectSocket);
-          tlsSocket.on("timeout", rejectSocket);
-          tlsSocket.on("ready", () => {
-            this.currentSessionId = resp.SessionID;
-            this.protocolClient.socket = tlsSocket;
-            tlsSocket.removeAllListeners();
-            resolve();
-          });
-        })
+            tlsSocket.on("error", rejectConnection);
+            tlsSocket.on("timeout", rejectConnection);
+            tlsSocket.on("ready", () => {
+              tlsSocket.removeAllListeners();
+              this.defaultSocket = this.socket;
+              this.currentSessionId = resp.SessionID;
+              this.socket = tlsSocket;
+              this.protocolClient.socket = tlsSocket;
+              resolve();
+            });
+        });
       }
     } else {
       throw new ResponseError("Error starting session", resp);
@@ -90,6 +124,10 @@ export class LockdowndClient extends ServiceClient<LockdownProtocolClient> {
       SessionID: this.currentSessionId,
       ...defaultPlistData,
     });
+
+    this.socket = this.defaultSocket;
+    this.protocolClient.socket = this.defaultSocket;
+    this.defaultSocket = undefined;
   }
 
   async getAllValues() {

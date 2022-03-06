@@ -25,9 +25,11 @@
     "fast-srp-hap": "^2.0.4",
     "forge": "^2.3.0",
     "getmac": "^5.20.0",
+    "native-run": "^1.5.0",
     "node-forge": "^1.2.1",
     "node-tlv": "^1.5.14",
     "plist": "^3.0.4",
+    "systeminformation": "^5.11.6",
     "tslib": "^2.3.1",
     "typescript": "^4.5.5",
     "uuid": "^8.3.2"

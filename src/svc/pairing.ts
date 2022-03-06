@@ -185,11 +185,12 @@ export class Pairing {
       sharedSecret
     );
 
-    const systemBuid = uuidv4();
+    const systemBuid = '506762CF-317E-4C4C-80B6-4029562E3E5F'; // TODO: Fixme
+    const hostUID = uuidv4().toUpperCase();
     const pairingRecord = this.usbmuxd.getPairingRecord(
       publicKey.toString(),
       systemBuid,
-      pairingId
+      hostUID
     );
 
     const { EscrowBag, UDID } = await this.lockdownd.pairCU(
